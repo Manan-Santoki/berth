@@ -1,5 +1,7 @@
 import "server-only";
 import { audit } from "./audit";
+import { features } from "./env";
+import { pruneEmptyRepositories } from "./maintenance";
 import { deleteManifest, headManifest, listTags, mapLimit } from "./registry/client";
 import { invalidateSnapshot } from "./registry/snapshot";
 
@@ -27,4 +29,21 @@ export async function deleteReferences(actor: string, repository: string, refere
   }
   invalidateSnapshot();
   return results;
+}
+
+/**
+ * Deletes every image in a repository, then removes the repository itself from
+ * storage so it leaves the catalog. Layers are freed by the next garbage collection.
+ */
+export async function deleteRepository(actor: string, repository: string): Promise<{ deletedImages: number; removed: boolean }> {
+  const tags = await listTags(repository);
+  const results = tags.length ? await deleteReferences(actor, repository, tags) : [];
+  if (!features.diskUsage) {
+    throw new Error(
+      `Deleted ${results.length} image(s), but removing the empty repository needs access to the registry volume (REGISTRY_STORAGE_PATH).`,
+    );
+  }
+  const removed = await pruneEmptyRepositories(actor, [repository]);
+  audit(actor, "repository.delete", repository, { images: results.length });
+  return { deletedImages: results.length, removed: removed.includes(repository) };
 }

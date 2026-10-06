@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createSession, destroySession, requireAdmin, requireUser, type Role } from "@/lib/auth/session";
 import { deletePolicy, getPolicy, planPolicy, runPolicy, savePolicy, validatePolicy, type PlanItem, type PolicyInput } from "@/lib/cleanup";
 import { kvSet } from "@/lib/db";
-import { deleteReferences, type DeleteResult } from "@/lib/images";
+import { deleteReferences, deleteRepository, type DeleteResult } from "@/lib/images";
 import { getJob, type Job } from "@/lib/jobs";
 import { diskUsage, pruneEmptyRepositories, runGarbageCollect } from "@/lib/maintenance";
 import { invalidateSnapshot } from "@/lib/registry/snapshot";
@@ -62,6 +62,15 @@ export async function deleteImagesAction(repository: string, references: string[
     const results = await deleteReferences(p.username, repository, references);
     revalidatePath("/", "layout");
     return { results };
+  });
+}
+
+export async function deleteRepositoryAction(repository: string): Promise<ActionResult<{ deletedImages: number; removed: boolean }>> {
+  return attempt(async () => {
+    const p = await requireAdmin();
+    const r = await deleteRepository(p.username, repository);
+    revalidatePath("/", "layout");
+    return r;
   });
 }
 

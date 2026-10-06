@@ -7,10 +7,11 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireUser } from "@/lib/auth/session";
-import { env } from "@/lib/env";
+import { env, features } from "@/lib/env";
 import { listEvents } from "@/lib/events";
 import { formatBytes, shortDigest, tagHref } from "@/lib/format";
 import { getRepository } from "@/lib/registry/snapshot";
+import { DeleteRepositoryButton } from "./delete-repo-button";
 import { TagsTable, type TagRow } from "./tags-table";
 
 export async function generateMetadata({ params }: PageProps<"/repositories/[...name]">) {
@@ -44,7 +45,12 @@ export default async function RepositoryPage({ params }: PageProps<"/repositorie
       <PageHeader
         title={<span className="font-mono">{name}</span>}
         description={`${repo.tags.length} tags · ${digestCounts.size} unique images · ${formatBytes(repo.size)}`}
-        actions={<RefreshButton path={`/repositories`} />}
+        actions={
+          <>
+            <RefreshButton path={`/repositories`} />
+            {user.role === "admin" && features.diskUsage && <DeleteRepositoryButton repository={name} tagCount={repo.tags.length} />}
+          </>
+        }
       >
         <Breadcrumb>
           <BreadcrumbList>
@@ -64,6 +70,15 @@ export default async function RepositoryPage({ params }: PageProps<"/repositorie
           </BreadcrumbList>
         </Breadcrumb>
       </PageHeader>
+
+      {repo.tags.length === 0 && !repo.error && (
+        <Alert>
+          <AlertDescription>
+            This repository has no tags left, so nothing can be pulled from it.
+            {user.role === "admin" && features.diskUsage ? " Use Delete repository to remove it from the catalog." : " It stays in the catalog until its folder is removed from storage."}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {repo.error && (
         <Alert variant="destructive">
