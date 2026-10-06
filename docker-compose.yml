@@ -1,0 +1,112 @@
+# Berth: Docker registry (distribution v3) + management dashboard.
+#
+#   cp .env.example .env   # set ADMIN_PASSWORD, WEBHOOK_TOKEN, SESSION_SECRET
+#   docker compose up -d
+#
+# Registry layers live in REGISTRY_DATA_PATH on the host (any absolute path,
+# e.g. a mounted storage box). Berth's own database stays on a local volume.
+
+name: berth
+
+services:
+  berth:
+    build: .
+    image: ${BERTH_IMAGE:-berth:latest}
+    restart: unless-stopped
+    environment:
+      REGISTRY_URL: http://registry:5000
+      REGISTRY_PUBLIC_HOST: ${REGISTRY_PUBLIC_HOST:?set REGISTRY_PUBLIC_HOST, e.g. registry.example.com}
+      REGISTRY_METRICS_URL: http://registry:5001/metrics
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:?set WEBHOOK_TOKEN}
+      HTPASSWD_PATH: /auth/htpasswd
+      REGISTRY_STORAGE_PATH: /var/lib/registry
+      REGISTRY_CONFIG_PATH: /etc/distribution/config.yml
+    configs:
+      - source: registry_config
+        target: /etc/distribution/config.yml
+    volumes:
+      - berth-data:/data
+      - registry-auth:/auth
+      - ${REGISTRY_DATA_PATH:-./data/registry}:/var/lib/registry
+    expose:
+      - "3000"
+
+  registry:
+    image: registry:3
+    restart: unless-stopped
+    # Berth creates the htpasswd file on boot; starting after it avoids the
+    # registry generating its own random default user.
+    depends_on:
+      berth:
+        condition: service_healthy
+    environment:
+      OTEL_TRACES_EXPORTER: none
+      # Set when running several registry replicas behind one load balancer.
+      REGISTRY_HTTP_SECRET: ${REGISTRY_HTTP_SECRET:-}
+    configs:
+      - source: registry_config
+        target: /etc/distribution/config.yml
+    volumes:
+      - registry-auth:/auth
+      - ${REGISTRY_DATA_PATH:-./data/registry}:/var/lib/registry
+    expose:
+      - "5000"
+
+configs:
+  registry_config:
+    content: |
+      version: 0.1
+      log:
+        level: info
+        fields:
+          service: registry
+      storage:
+        filesystem:
+          rootdirectory: /var/lib/registry
+        delete:
+          enabled: true
+        maintenance:
+          uploadpurging:
+            enabled: true
+            age: 168h
+            interval: 24h
+            dryrun: false
+        # No blobdescriptor cache on purpose: after garbage collection a cache
+        # could still report deleted blobs as present.
+      http:
+        addr: :5000
+        relativeurls: true
+        headers:
+          X-Content-Type-Options: [nosniff]
+        debug:
+          addr: :5001
+          prometheus:
+            enabled: true
+            path: /metrics
+      auth:
+        htpasswd:
+          realm: Berth Registry
+          path: /auth/htpasswd
+      health:
+        storagedriver:
+          enabled: true
+          interval: 10s
+          threshold: 3
+      notifications:
+        endpoints:
+          - name: berth
+            url: http://berth:3000/api/registry/events
+            headers:
+              Authorization: [Bearer ${WEBHOOK_TOKEN}]
+            timeout: 5s
+            threshold: 5
+            backoff: 10s
+            ignoredmediatypes:
+              - application/octet-stream
+
+volumes:
+  berth-data:
+  registry-auth:

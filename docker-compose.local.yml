@@ -1,0 +1,13 @@
+# Local development/testing: publishes the dashboard and registry on localhost.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Dashboard: http://localhost:3000   Registry: localhost:5000 (docker allows plain HTTP for localhost)
+
+services:
+  berth:
+    ports:
+      - "${BERTH_PORT:-3000}:3000"
+  registry:
+    ports:
+      - "${REGISTRY_PORT:-5000}:5000"
